@@ -1,21 +1,47 @@
+import os
+
 import streamlit as st
 from pypdf import PdfReader
 from docx import Document
 from pydantic import BaseModel
 from dotenv import load_dotenv
+from google import genai
 
+
+# -----------------------------
+# Load environment variables
+# -----------------------------
 load_dotenv()
 
+api_key = os.getenv("GEMINI_API_KEY")
+
+if not api_key:
+    st.error(
+        "GEMINI_API_KEY is not configured. "
+        "Please add it to your .env file."
+    )
+    st.stop()
+
+client = genai.Client(api_key=api_key)
+
+
+# -----------------------------
+# Streamlit Page Configuration
+# -----------------------------
 st.set_page_config(
     page_title="AI Documentation Generator",
-    page_icon="📚"
+    page_icon="📚",
+    layout="wide"
 )
 
 st.title("📚 AI-Powered Documentation Generator")
-st.write("Create software project documentation easily.")
-
+st.write("Create software project documentation using Gemini AI.")
 st.divider()
 
+
+# -----------------------------
+# Project Details
+# -----------------------------
 st.header("📝 Project Details")
 
 project_name = st.text_input("Project Name")
@@ -26,6 +52,10 @@ language = st.text_input("Programming Language")
 
 features = st.text_area("Main Features")
 
+
+# -----------------------------
+# Upload Document
+# -----------------------------
 st.header("📂 Upload Document")
 
 uploaded_file = st.file_uploader(
@@ -37,7 +67,7 @@ document_text = ""
 
 if uploaded_file is not None:
 
-    if uploaded_file.name.endswith(".pdf"):
+    if uploaded_file.name.lower().endswith(".pdf"):
 
         reader = PdfReader(uploaded_file)
 
@@ -47,16 +77,19 @@ if uploaded_file is not None:
             if text:
                 document_text += text + "\n"
 
-    elif uploaded_file.name.endswith(".docx"):
+    elif uploaded_file.name.lower().endswith(".docx"):
 
         doc = Document(uploaded_file)
 
         for paragraph in doc.paragraphs:
             document_text += paragraph.text + "\n"
 
-    st.success("Document uploaded successfully!")
+    st.success("✅ Document uploaded successfully!")
 
 
+# -----------------------------
+# Pydantic Model
+# -----------------------------
 class ProjectData(BaseModel):
     name: str
     description: str
@@ -64,10 +97,15 @@ class ProjectData(BaseModel):
     features: str
 
 
+# -----------------------------
+# Generate Documentation
+# -----------------------------
 if st.button("🚀 Generate Documentation"):
 
     if project_name == "" or description == "" or language == "":
-        st.warning("Please fill Project Name, Description and Programming Language.")
+        st.warning(
+            "Please fill Project Name, Description and Programming Language."
+        )
 
     else:
 
@@ -78,71 +116,86 @@ if st.button("🚀 Generate Documentation"):
             features=features
         )
 
-        st.success("✅ Documentation generated!")
+        # -----------------------------
+        # Create AI Prompt
+        # -----------------------------
+        prompt = f"""
+You are a professional software documentation writer.
 
-        st.subheader("📄 Generated Documentation")
+Create clear and professional documentation for the following project.
 
-        st.markdown("# " + project.name)
+Project Name:
+{project.name}
 
-        st.markdown("## 1. Project Overview")
-        st.write(project.description)
+Project Description:
+{project.description}
 
-        st.markdown("## 2. Programming Language")
-        st.write(project.language)
+Programming Language:
+{project.language}
 
-        st.markdown("## 3. Main Features")
-        st.write(project.features)
+Main Features:
+{project.features}
 
-        st.markdown("## 4. Uploaded Document")
+Uploaded Document:
+{document_text[:5000] if document_text else "No document uploaded."}
 
-        if document_text:
-            st.write(document_text[:3000])
-        else:
-            st.write("No document was uploaded.")
+Create documentation with these sections:
 
-        st.markdown("## 5. Installation")
+# Project Name
 
-        st.code(
-            "pip install -r requirements.txt",
-            language="bash"
-        )
+## 1. Project Overview
 
-        st.markdown("## 6. How to Run")
+## 2. Programming Language
 
-        st.code(
-            "streamlit run app.py",
-            language="bash"
-        )
+## 3. Main Features
 
-        st.markdown("## 7. Future Enhancements")
+## 4. Uploaded Document
 
-        st.write("- AI-based documentation generation")
-        st.write("- Automatic README generation")
-        st.write("- Code analysis")
-        st.write("- API documentation")
+## 5. Installation
 
-        st.markdown("## 8. Conclusion")
+## 6. How to Run
 
-        st.write(
-            "This application helps developers create "
-            "software project documentation quickly."
-        )
+## 7. Future Enhancements
 
-        documentation = (
-            "# " + project.name + "\n\n"
-            "## 1. Project Overview\n\n"
-            + project.description + "\n\n"
-            "## 2. Programming Language\n\n"
-            + project.language + "\n\n"
-            "## 3. Main Features\n\n"
-            + project.features + "\n\n"
-            "## 4. Uploaded Document\n\n"
-            + (document_text[:3000] if document_text else "No document uploaded.")
-        )
+## 8. Conclusion
 
-        st.download_button(
-            "⬇️ Download Documentation",
-            documentation,
-            file_name="documentation.md",
-            mime="text/markdown"
-        )
+Make the documentation simple, clear, and suitable for a college software project.
+"""
+
+        # -----------------------------
+        # Call Gemini AI
+        # -----------------------------
+        try:
+
+            with st.spinner("🤖 Gemini is generating documentation..."):
+
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=prompt
+                )
+
+                documentation = response.text
+
+            st.success("✅ Documentation generated successfully!")
+
+            # -----------------------------
+            # Display Documentation
+            # -----------------------------
+            st.subheader("📄 Generated Documentation")
+
+            st.markdown(documentation)
+
+            # -----------------------------
+            # Download Documentation
+            # -----------------------------
+            st.download_button(
+                "⬇️ Download Documentation",
+                documentation,
+                file_name="documentation.md",
+                mime="text/markdown"
+            )
+
+        except Exception as e:
+
+            st.error("❌ Error while generating documentation.")
+            st.write(str(e))
